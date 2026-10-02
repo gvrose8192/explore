@@ -30,7 +30,9 @@ class ExploreNode(Node):
         self.move_distance = float(self.declare_parameter('move_distance', 1.25).value)
         self.stop_distance = float(self.declare_parameter('stop_distance', 0.5).value)
         self.spin_speed = float(self.declare_parameter('spin_speed', 1.0).value)
-        self.min_gap_angle_degrees = float(self.declare_parameter('min_gap_angle_degrees', 60.0).value)
+        # Minimum gap angle for escape path detection (degrees)
+        # Testing range: 25-50 degrees recommended. Lower = more aggressive, Higher = safer.
+        self.min_gap_angle_degrees = float(self.declare_parameter('min_gap_angle_degrees', 35.0).value)
 
         # Publisher
         self.publisher_ = self.create_publisher(Twist, 'cmd_vel', 10)
@@ -113,11 +115,21 @@ class ExploreNode(Node):
         """
         Analyze full 360° LIDAR scan (1080 points) to find the direction with longest clear path.
         
+        Minimum gap angle is configurable via parameter. Recommended testing range: 25-50 degrees.
+        - Lower values (e.g., 25-35°): More aggressive, accepts narrower gaps, faster escape
+        - Higher values (e.g., 45-50°): Safer, requires wider gaps, may miss tight spaces
+        
         Returns:
             best_rotation_angle: Angle to rotate toward gap center (-π to +π), or None
             max_gap_distance: Distance in that direction, or None
         """
+        # Calculate minimum gap angle in radians once for performance
         MIN_GAP_ANGLE = math.radians(self.min_gap_angle_degrees)
+        
+        self.get_logger().info(
+            f"DEBUG OBSTACLE_AVOID: Min gap threshold set to {self.min_gap_angle_degrees:.1f}° "
+            f"({MIN_GAP_ANGLE:.3f} rad)"
+        )
 
         if self.scan_message is None or len(self.scan_message.ranges) == 0:
             return None, None
@@ -192,6 +204,10 @@ class ExploreNode(Node):
                     max_gap_distance = avg_gap_distance
                     best_gap_start_idx = idx
                     best_gap_end_idx = next_idx
+                    self.get_logger().info(
+                        f"DEBUG OBSTACLE_AVOID: Gap {gap_angle*180/math.pi:.1f}° found at "
+                        f"{distance:.2f}m (min threshold: {self.min_gap_angle_degrees:.1f}°)"
+                    )
 
         if best_gap_end_idx is not None:
             gap_center_idx = (best_gap_start_idx + best_gap_end_idx) / 2.0
